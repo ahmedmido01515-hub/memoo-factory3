@@ -5,10 +5,7 @@ import json
 import os
 
 # يقرأ التوكن من إعدادات Render
-FACTORY_BOT_TOKEN = os.getenv("FACTORY_TOKEN") or os.getenv("BOT_TOKEN")
-
-if not FACTORY_BOT_TOKEN:
-    print("❌ لازم تحط FACTORY_TOKEN في Environment Variables")
+FACTORY_BOT_TOKEN = os.environ.get("FACTORY_TOKEN")
     # fallback للموبايل
     if os.path.exists("factory_token.txt"):
         with open("factory_token.txt","r") as f:
