@@ -1,1 +1,2 @@
-pyTelegramBotAPI\nrequests\n
+pyTelegramBotAPI
+requests
