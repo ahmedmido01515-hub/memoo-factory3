@@ -1,3 +1,4 @@
+
 """
 🏭 مصنع ميمو - Memoo Factory - سورس حماية حقيقي
 🤖 معرف المصنع: @memoo_factory_bot
@@ -263,4 +264,62 @@ def rules(update: Update, context: CallbackContext):
 def id_cmd(update: Update, context: CallbackContext):
     u = update.effective_user
     c = update.effective_chat
-    txt = f
+    txt = f"🆔 ايديك: {u.id}\n💬 ايدي الشات: {c.id}"
+    if update.message.reply_to_message:
+        txt+=f"\n👤 ايدي المردود: {update.message.reply_to_message.from_user.id}"
+    txt+=f"\n\n🏭 @{FACTORY_BOT_USERNAME} | 👩‍💻 @{DEV_USERNAME} - {DEV_NAME}"
+    update.message.reply_text(txt)
+
+def filter_locks(update: Update, context: CallbackContext):
+    if is_admin(update): return
+    cid = str(update.effective_chat.id)
+    locks = locks_db.get(cid,{})
+    if not locks: return
+    msg = update.message
+    if not msg: return
+    txt = msg.text or msg.caption or ""
+    should=False
+    if locks.get("links") or locks.get("all"):
+        if "http" in txt or "t.me/" in txt or "www." in txt:
+            should=True
+    if locks.get("photo") or locks.get("all"):
+        if msg.photo: should=True
+    if locks.get("video") or locks.get("all"):
+        if msg.video or msg.video_note: should=True
+    if locks.get("sticker") or locks.get("all"):
+        if msg.sticker: should=True
+    if should:
+        try:
+            msg.delete()
+        except:
+            pass
+
+def main():
+    updater = Updater(TOKEN, use_context=True)
+    dp = updater.dispatcher
+    dp.add_handler(CommandHandler("start", start))
+    dp.add_handler(CommandHandler("help", help_cmd))
+    dp.add_handler(CommandHandler("ban", ban))
+    dp.add_handler(CommandHandler("unban", unban))
+    dp.add_handler(CommandHandler("kick", kick))
+    dp.add_handler(CommandHandler("mute", mute))
+    dp.add_handler(CommandHandler("unmute", unmute))
+    dp.add_handler(CommandHandler("warn", warn))
+    dp.add_handler(CommandHandler("warns", warns))
+    dp.add_handler(CommandHandler("lock", lock))
+    dp.add_handler(CommandHandler("unlock", unlock))
+    dp.add_handler(CommandHandler("locks", locks))
+    dp.add_handler(CommandHandler("pin", pin))
+    dp.add_handler(CommandHandler("setrules", setrules))
+    dp.add_handler(CommandHandler("rules", rules))
+    dp.add_handler(CommandHandler("id", id_cmd))
+    dp.add_handler(MessageHandler(Filters.all & ~Filters.status_update, filter_locks), group=0)
+    print(f"✅ بوت الحماية الحقيقي شغال")
+    print(f"🤖 المصنع: @{FACTORY_BOT_USERNAME}")
+    print(f"📢 القناة: {CHANNEL_URL}")
+    print(f"👩‍💻 المطور: @{DEV_USERNAME} - {DEV_NAME}")
+    updater.start_polling()
+    updater.idle()
+
+if __name__ == "__main__":
+    main()
