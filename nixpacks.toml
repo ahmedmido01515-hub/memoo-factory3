@@ -2,4 +2,4 @@
 python = {}
 
 [start]
-cmd = "python app.py"
+cmd = "python main.py"
