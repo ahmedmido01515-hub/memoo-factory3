@@ -1,231 +1,253 @@
 import os
-import json
-import asyncio
+import sqlite3
 from pyrogram import Client, filters
-from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
-from pyrogram.errors import UserNotParticipant
+from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
+from pyrogram.errors import Unauthorized, BackgroundIdInvalid 
 
-# --- 🛠️ إعداد المتغيرات البيئية بأمان ---
-API_ID = int(os.environ.get("API_ID", 1234567))                  
-API_HASH = os.environ.get("API_HASH", "your_api_hash_here")      
-BOT_TOKEN = os.environ.get("TOKEN") 
-OWNER_USERNAME = "MernaQueen"        
-CHANNEL_LINK = "Memoofactory" # اسم معرف القناة بدون @
+### ==========================================
 
-DB_FILE = "factory_db.json"
-running_bots = {}
+### ⚙️ إعدادات المطور الأساسية (قم بتعديلها)
 
-# --- إدارة قاعدة البيانات المصغرة ---
-if not os.path.exists(DB_FILE):
-    with open(DB_FILE, "w") as f:
-        json.dump({"bots": {}, "users": []}, f)
+### ==========================================
 
-def load_db():
-    with open(DB_FILE, "r") as f:
-        return json.load(f)
+API_ID = 1234567                 # ضع هنا الـ API ID الخاص بك من my.telegram.org
+API_HASH = "your_api_hash_here"    # ضع هنا الـ API HASH الخاص بك
+ADMIN_ID = 123456789              # آيدي حسابك الشخصي على تليجرام (مالك المصنع)
+MAIN_BOT_TOKEN = "YOUR_MAIN_BOT_TOKEN_HERE" # توكن بوت المصنع الرئيسي من BotFather 
 
-def save_db(data):
-    with open(DB_FILE, "w") as f:
-        json.dump(data, f, indent=4)
+### ==========================================
 
-# تشغيل البوت المصنع الأساسي
-app = Client("MemoFactoryPro", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+### 🗄️ إعداد وتجهيز قاعدة البيانات
 
-# --- 📢 دالة التحقق من اشتراك القناة الإجباري ---
-async def check_subscription(client: Client, user_id: int):
-    try:
-        await client.get_chat_member(CHANNEL_LINK, user_id)
-        return True
-    except UserNotParticipant:
-        return False
-    except Exception:
-        return True # تجنب التوقف في حال وجود مشكلة بالصلاحيات
+### ==========================================
 
-# ========================================================
-# 1️⃣ الأوامر العامة وقائمة العميل (Client Menu)
-# ========================================================
+conn = sqlite3.connect("factory_database.db", check_same_thread=False)
+cursor = conn.cursor() 
 
-@app.on_message(filters.command("start") & filters.private)
-async def start_handler(client: Client, message: Message):
-    user_id = message.from_user.id
-    db = load_db()
-    
-    if user_id not in db["users"]:
-        db["users"].append(user_id)
-        save_db(db)
+### جدول لتخزين توكنات البوتات المصنوعة وأصحابها
 
-    # التحقق من الاشتراك الإجباري
-    if not await check_subscription(client, user_id):
-        buttons = [[InlineKeyboardButton("📢 اشترك في القناة أولاً", url=f"https://t.me{CHANNEL_LINK}")],
-                   [InlineKeyboardButton("🔄 تحقق من الاشتراك", callback_data="check_sub")]]
-        await message.reply_text("⚠️ **عذراً عزيزي، يجب عليك الاشتراك في قناة السورس أولاً لاستخدام المصنع!**", reply_markup=InlineKeyboardMarkup(buttons))
-        return
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS bots (
+token TEXT PRIMARY KEY,
+owner_id INTEGER
+)
+""") 
 
-    is_owner = (message.from_user.username == OWNER_USERNAME)
-    
-    welcome_text = (
-        f"🛡️ **أهلاً بك في مصنع بوتات حماية ميمو الاحترافي!**\n\n"
-        f"يسعدنا خدمتك لتنصيب وتفعيل بوتات الحماية الخاصة بالمجموعات تلقائياً وبأعلى كفاءة.\n\n"
-        f"💡 استخدم الأزرار بالأسفل للتحكم في خدمات المصنع."
-    )
-    
-    buttons = [
-        [InlineKeyboardButton("➕ صنع بوت حماية جديد", callback_data="create_bot")],
-        [InlineKeyboardButton("❌ حذف أو إيقاف بوتك", callback_data="delete_bot")],
-        [InlineKeyboardButton("📢 قناة السورس", url=f"https://t.me{CHANNEL_LINK}")]
-    ]
-    if is_owner:
-        buttons.append([InlineKeyboardButton("⚙️ لوحة تحكم المطور", callback_data="owner_menu")])
+### جدول لتخزين إعدادات حماية المجموعات لكل بوت
 
-    await message.reply_text(welcome_text, reply_markup=InlineKeyboardMarkup(buttons))
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS protected_groups (
+bot_token TEXT,
+group_id INTEGER,
+welcome_msg TEXT DEFAULT 'أهلاً بك في المجموعة!',
+lock_links INTEGER DEFAULT 0,
+PRIMARY KEY (bot_token, group_id)
+)
+""")
+conn.commit() 
 
-# تفاعل الأزرار الشفافة للمصنع
-@app.on_callback_query()
-async def callback_handler(client: Client, callback_query: CallbackQuery):
-    data = callback_query.data
-    user_id = callback_query.from_user.id
-    db = load_db()
+### ==========================================
 
-    if data == "check_sub":
-        if await check_subscription(client, user_id):
-            await callback_query.answer("✅ تم التحقق بنجاح!", show_alert=True)
-            await start_handler(client, callback_query.message)
-        else:
-            await callback_query.answer("❌ لم تشترك في القناة بعد!", show_alert=True)
+### 🤖 تشغيل العميل الرئيسي للمصنع
 
-    elif data == "create_bot":
-        await callback_query.message.edit_text(
-            "📥 **قم بإرسال توكن البوت الخاص بك الآن.**\n\n"
-            "💡 للحصول على التوكن:\n"
-            "1️⃣ اذهب إلى @BotFather واكتب `/newbot`.\n"
-            "2️⃣ اختر اسماً ومعرفاً للبوت الخاص بك.\n"
-            "3️⃣ انسخ الـ **Token** المرسل لك وقم بلصقه هنا مباشرة."
-        )
+### ==========================================
 
-    elif data == "delete_bot":
-        user_bots = [token for token, uid in db["bots"].items() if uid == user_id]
-        if not user_bots:
-            await callback_query.answer("⚠️ ليس لديك أي بوتات مشغلة حالياً لتدميرها!", show_alert=True)
-            return
-        
-        target_token = user_bots[0]
-        if target_token in running_bots:
-            try:
-                await running_bots[target_token].stop()
-                del running_bots[target_token]
-            except Exception:
-                pass
-        
-        if target_token in db["bots"]:
-            del db["bots"][target_token]
-        save_db(db)
-        await callback_query.message.edit_text("✅ **تم إيقاف وحذف بوت الحماية الخاص بك بنجاح من خوادمنا.**")
+factory_app = Client(
+"FactoryMainBot",
+api_id=API_ID,
+api_hash=API_HASH,
+bot_token=MAIN_BOT_TOKEN
+) 
 
-    elif data == "owner_menu" and callback_query.from_user.username == OWNER_USERNAME:
-        total_users = len(db["users"])
-        total_bots = len(db["bots"])
-        owner_text = (
-            f"⚙️ **مرحباً بك في لوحة تحكم مطور المصنع ميمو:**\n\n"
-            f"📊 **إحصائيات النظام الحالية:**\n"
-            f"👤 عدد مستخدمي المصنع: `{total_users}`\n"
-            f"🤖 عدد البوتات المصنوعة النشطة: `{total_bots}`"
-        )
-        buttons = [[InlineKeyboardButton("🔙 العودة للقائمة الرئيسية", callback_data="main_menu")]]
-        await callback_query.message.edit_text(owner_text, reply_markup=InlineKeyboardMarkup(buttons))
+### مصفوفة في الذاكرة لتخزين البوتات النشطة برمجياً
 
-    elif data == "main_menu":
-        await start_handler(client, callback_query.message)
+RUNNING_BOTS = {} 
 
-# ========================================================
-# 2️⃣ تفعيل البوت واستقبال التوكن
-# ========================================================
+def run_sub_bot(token):
+"""دالة ديناميكية لإنشاء وتشغيل بوت حماية فرعي فوراً"""
+if token in RUNNING_BOTS:
+return 
 
-@app.on_message(filters.text & filters.private)
-async def token_receiver(client: Client, message: Message):
-    user_id = message.from_user.id
-    token = message.text.strip()
-    db = load_db()
+### إنشاء نسخة عميل مستقلة لكل توكن مصنوع
 
-    if ":" not in token or len(token) < 30:
-        return
+sub_app = Client(
+f"bot_{token.split(':')}",
+api_id=API_ID,
+api_hash=API_HASH,
+bot_token=token
+) 
 
-    if not await check_subscription(client, user_id):
-        await message.reply_text("⚠️ يرجى الاشتراك في القناة أولاً لتفعيل الخدمة.")
-        return
+### --- [كود بوت الحماية الفرعي المصنوع] ---
 
-    if token in db["bots"] or token in running_bots:
-        await message.reply_text("⚠️ هذا البوت منصب مسبقاً ويعمل على السيرفر!")
-        return
+@sub_app.on_message(filters.command("start") & filters.private)
+async def sub_start(client, message: Message):
+bot_user = await client.get_me()
+await message.reply_text(
+f"🤖 **أهلاً بك في بوت الحماية المتطور!**\n\n"
+f"أنا بوت مخصص لحماية وتأمين المجموعات من السبام، الروابط، والتوجيه.\n\n"
+f"**💡 طريقة التفعيل:**\n"
+f"1️⃣ قم بإضافتي إلى مجموعتك.\n"
+f"2️⃣ ارفعني رتبة **مشرف (Admin)** مع إعطائي كامل الصلاحيات لكي أعمل بشكل صحيح.",
+reply_markup=InlineKeyboardMarkup([
+[InlineKeyboardButton("➕ أضف البوت إلى مجموعتك", url=f"https://t.me/{bot_user.username}?startgroup=true")]
+])
+) 
 
-    await message.reply_text("⏳ **جاري فحص التوكن البرمجي وتنصيب ميزات سورس ميمو المحترفة...**")
+@sub_app.on_message(filters.new_chat_members)
+async def welcome_new_members(client, message: Message):
+"""الترحيب التلقائي بالأعضاء الجدد"""
+bot_token = client.bot_token
+cursor.execute("SELECT welcome_msg FROM protected_groups WHERE bot_token=? AND group_id=?", (bot_token, message.chat.id))
+res = cursor.fetchone()
+welcome = res if res else "أهلاً بك في المجموعة!"
+for member in message.new_chat_members:
+if not member.is_self:
+await message.reply_text(f"✨ مرحباً بك {member.mention} {welcome}") 
 
-    try:
-        clean_session_name = token.split(':')[0]
-        child_bot = Client(f"child_{clean_session_name}", api_id=API_ID, api_hash=API_HASH, bot_token=token)
+@sub_app.on_message(filters.group & ~filters.service)
+async def group_protection(client, message: Message):
+"""نظام فحص وحماية المجموعة وقفل الروابط"""
+if not message.from_user:
+return 
 
-        # ========================================================
-        # 3️⃣ أوامر وميزات البوت الفرعي المصنوع (Child Bot Logic)
-        # ========================================================
-        
-        @child_bot.on_message(filters.command("start"))
-        async def child_start(c: Client, m: Message):
-            welcome = (
-                f"🛡️ **مرحباً بك في بوت حماية المجموعات الاحترافي!**\n\n"
-                f"⚙️ **وظيفتي:** حماية مجموعتك من التخريب، طرد ناشري الروابط، منع الإعلانات الموجهة والتوجيه تلقائياً.\n\n"
-                f"💡 **طريقة التشغيل:** أضفني إلى مجموعتك وارفَعني بمقام **مشرف (Admin)** بكامل الصلاحيات."
-            )
-            buttons = [[InlineKeyboardButton("⚙️ قائمة الأوامر والإعدادات", callback_data="child_help")]]
-            await m.reply_text(welcome, reply_markup=InlineKeyboardMarkup(buttons))
+### التحقق من رتبة العضو (أدمن أم عضو عادي)
 
-        @child_bot.on_callback_query()
-        async def child_callback(c: Client, cb: CallbackQuery):
-            if cb.data == "child_help":
-                help_text = (
-                    "⚙️ **قائمة أوامر الحماية التلقائية المفعّلة:**\n\n"
-                    "1️⃣ **منع الروابط:** يتم حذف أي رابط إنترنت أو تليجرام مع طرد الحساب فوراُ.\n"
-                    "2️⃣ **منع التوجيه:** يتم تنظيف وتصفية الإعلانات المنقولة من قنوات أخرى تلقائياً.\n"
-                    "3️⃣ **تصفية المعرفات:** يتم كشف ومنع الترويج لمعرفات `@` داخل المجموعة.\n\n"
-                    "⚠️ البوت يعمل بصمت وتلقائية بمجرد رفعه مشرفاً."
-                )
-                await cb.message.edit_text(help_text)
+member = await client.get_chat_member(message.chat.id, message.from_user.id) 
 
-        @child_bot.on_message(filters.group & (filters.regex(r"t\.me/") | filters.regex(r"@[a-zA-Z0-9_]+") | filters.regex(r"https?://")))
-        async def link_protection(c: Client, m: Message):
-            try:
-                member = await m.chat.get_member(m.from_user.id)
-                if member.status in ["administrator", "creator"]:
-                    return
-                await m.delete()
-                await m.chat.ban_member(m.from_user.id)
-            except Exception:
-                pass
+if member.status in ["administrator", "creator"]: 
 
-        @child_bot.on_message(filters.group & filters.forwarded)
-        async def forward_protection(c: Client, m: Message):
-            try:
-                member = await m.chat.get_member(m.from_user.id)
-                if member.status in ["administrator", "creator"]:
-                    return
-                await m.delete()
-            except Exception:
-                pass
+### أوامر التحكم للأدمنز داخل المجموعة
 
-        await child_bot.start()
-        running_bots[token] = child_bot
-        db["bots"][token] = user_id
-        save_db(db)
+if message.text == "قفل الروابط":
+cursor.execute("INSERT OR REPLACE INTO protected_groups (bot_token, group_id, lock_links) VALUES (?, ?, 1)", (client.bot_token, message.chat.id))
+conn.commit()
+await message.reply_text("🔒 **تم قفل الروابط بنجاح. سيتم حذف أي رابط يرسله الأعضاء.**")
+return
+elif message.text == "فتح الروابط":
+cursor.execute("INSERT OR REPLACE INTO protected_groups (bot_token, group_id, lock_links) VALUES (?, ?, 0)", (client.bot_token, message.chat.id))
+conn.commit()
+await message.reply_text("🔓 **تم فتح الروابط في المجموعة.**")
+return
+return 
 
-        bot_info = await child_bot.get_me()
-        await message.reply_text(
-            f"✅ **تم تنصيب وتفعيل بوت الحماية الاحترافي بنجاح!**\n\n"
-            f"🤖 **يوزر البوت المصنوع:** @{bot_info.username}\n"
-            f"🆔 **معرف الحماية:** `{bot_info.id}`\n\n"
-            f"✨ البوت الآن جاهز للعمل ولديه قائمة ترحيب مخصصة وأمر `/start` بمجرد إضافته للمجموعات."
-        )
+### تطبيق القوانين على الأعضاء العاديين
 
-    except Exception as e:
-        await message.reply_text(f"❌ **فشل التفعيل:** تعذر تشغيل البوت.\n**السبب:** `{str(e)}`")
+cursor.execute("SELECT lock_links FROM protected_groups WHERE bot_token=? AND group_id=?", (client.bot_token, message.chat.id))
+res = cursor.fetchone()
+if res and res == 1: 
 
-if __name__ == "__main__":
-    print("🚀 سورس مصنع ميمو المحترف يعمل الآن...")
-    app.run()
+### فحص إذا كانت الرسالة تحتوي على روابط أو معرفات قنوات
+
+if message.entities:
+for entity in message.entities:
+if entity.type in ["url", "text_link", "mention"]:
+try:
+await message.delete()  # حذف الرابط فوراً
+await message.reply_text(f"⚠️ العضو {message.from_user.mention} ممنوع إرسال الروابط هنا!")
+except Exception:
+pass
+return 
+
+# تشغيل البوت وحفظه في المصفوفة النشطة
+
+sub_app.start()
+RUNNING_BOTS[token] = sub_app
+
+def start_all_sub_bots():
+"""دالة لاستدعاء وتشغيل كل البوتات المخزنة في قاعدة البيانات عند إقلاع السيرفر"""
+cursor.execute("SELECT token FROM bots")
+rows = cursor.fetchall()
+for row in rows:
+token = row
+try:
+run_sub_bot(token)
+except Exception as e:
+print(f"⚠️ تعذر تشغيل التوكن المسترجع [{token[:12]}...]: {e}") 
+
+### ==========================================
+
+### 🎮 لوحة تحكم وأوامر المصنع الرئيسي
+
+### ==========================================
+
+@factory_app.on_message(filters.command("start") & filters.private)
+async def factory_start(client, message: Message):
+await message.reply_text(
+"👋 **مرحباً بك في مصنع بوتات حماية المجموعات المطور!**\n\n"
+"هنا يمكنك إنشاء وتجهيز بوت حماية كامل خاص بمجموعتك مجاناً وبكامل الحقوق.\n\n"
+"**⚙️ خطوات الصنع الهينة:**\n"
+"1️⃣ اذهب إلى البوت الرسمي @BotFather واصنع بوت جديد.\n"
+"2️⃣ قم بنسخ التوكن (Token) الذي يمنحه لك البوت.\n"
+"3️⃣ أرسل التوكن هنا مباشرة في الشات وسيتم تفعيل بوتك فوراً.",
+reply_markup=InlineKeyboardMarkup([
+[InlineKeyboardButton("👨‍💻 مطور المصنع", user_id=ADMIN_ID)]
+])
+) 
+
+@factory_app.on_message(filters.private & ~filters.command(["start", "stats"]))
+async def handle_token_creation(client, message: Message):
+token = message.text.strip() 
+
+### فحص أولي لتركيبة التوكن
+
+if ":" not in token or len(token) < 30:
+await message.reply_text("❌ عذراً، هذا النص لا يبدو توكن بوت تليجرام صحيح. تأكد من نسخه بشكل صحيح من @BotFather")
+return 
+
+### التحقق من عدم تكرار البوت
+
+cursor.execute("SELECT owner_id FROM bots WHERE token=?", (token,))
+exist = cursor.fetchone()
+if exist:
+await message.reply_text("⚠️ هذا البوت تم إنشاؤه مسبقاً في المصنع وهو يعمل الآن!")
+return 
+
+progress = await message.reply_text("🔄 جاري التحقق من صحة التوكن وتشغيل الملفات...") 
+
+try: 
+
+### تشغيل البوت ديناميكياً وحفظه بالقاعدة
+
+run_sub_bot(token)
+cursor.execute("INSERT INTO bots (token, owner_id) VALUES (?, ?)", (token, message.from_user.id))
+conn.commit() 
+
+# جلب يوزر البوت المصنوع لعرضه للمستخدم
+target_bot = RUNNING_BOTS[token]
+bot_me = await target_bot.get_me()
+
+await progress.edit_text(
+    f"✅ **تم تشغيل وتفعيل بوت الحماية الخاص بك بنجاح!**\n\n"
+    f"🤖 **اسم البوت:** {bot_me.first_name}\n"
+    f"🔗 **معرف البوت:** @{bot_me.username}\n\n"
+    f"اضغط على معرف بوتك، وأرسل `/start` ثم قم بإضافته لمجموعتك ورفعه أدمن ليقوم بدوره في الحماية التلقائية."
+)
+
+except (Unauthorized, BackgroundIdInvalid):
+await progress.edit_text("❌ تفشل العملية! التوكن الذي أرسلته خاطئ أو تم إلغاؤه من BotFather.")
+except Exception as e:
+await progress.edit_text(f"❌ حدث خطأ غير متوقع أثناء تهيئة السورس الداخلي: {e}")
+
+@factory_app.on_message(filters.command("stats") & filters.user(ADMIN_ID))
+async def factory_stats(client, message: Message):
+"""إحصائيات المصنع لمالك البوت فقط"""
+cursor.execute("SELECT COUNT(*) FROM bots")
+total_bots = cursor.fetchone()
+await message.reply_text(f"📊 **إحصائيات مصنعك الحالية:**\n\n🤖 عدد البوتات المصنوعة والنشطة: {total_bots}") 
+
+### ==========================================
+
+### 🚀 إقلاع السيرفر والتشغيل المستمر
+
+### ==========================================
+
+if **name** == "**main**":
+print("⚡ جاري استدعاء البوتات المصنوعة مسبقاً وتشغيلها...")
+try:
+start_all_sub_bots()
+print("✅ تم تشغيل كافة البوتات الفرعية بنجاح.")
+except Exception as err:
+print(f"⚠️ خطأ أثناء تشغيل البوتات السابقة: {err}") 
+
+print("🚀 جاري بدء تشغيل مصنع البوتات الرئيسي...")
+factory_app.run()
