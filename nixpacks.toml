@@ -5,4 +5,4 @@ nixPkgs = ["python311"]
 cmds = ["pip install -r requirements.txt"]
 
 [start]
-cmd = "python app_memo_factory_FINAL_COPY.py"
+cmd = "python -u app_memo_factory_FINAL_COPY.py"
