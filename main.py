@@ -2,7 +2,7 @@ import os
 import sqlite3
 from pyrogram import Client, filters
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
-from pyrogram.errors import Unauthorized, BackgroundIdInvalid
+from pyrogram.errors import Unauthorized
 
 API_ID = 1234567
 API_HASH = "your_api_hash_here"
@@ -23,7 +23,9 @@ def run_sub_bot(token):
     if token in RUNNING_BOTS:
         return
     try:
-        sub_app = Client(f"bot_{token.split(':')[0]}", api_id=API_ID, api_hash=API_HASH, bot_token=token)
+        # أخذ الجزء الأول من التوكن فقط لتسمية الجلسة لتجنب مشاكل الرموز
+        session_name = f"bot_{token.split(':')[0]}"
+        sub_app = Client(session_name, api_id=API_ID, api_hash=API_HASH, bot_token=token)
         
         @sub_app.on_message(filters.command("start") & filters.private)
         async def sub_start(client, message: Message):
@@ -104,10 +106,10 @@ async def handle_token(client, message: Message):
         conn.commit()
         bot_me = await RUNNING_BOTS[token].get_me()
         await progress.edit_text(f"✅ تم تفعيل البوت بنجاح:\n🤖 @{bot_me.username}")
-    except (Unauthorized, BackgroundIdInvalid):
+    except Unauthorized:
         await progress.edit_text("❌ التوكن خاطئ أو ملغي.")
     except Exception as e:
-        await progress.edit_text(f"❌ خطأ غير متوقع: {e}")
+        await progress.edit_text(f"❌ خطأ في تشغيل البوت: {e}")
 
 @factory_app.on_message(filters.command("stats") & filters.user(ADMIN_ID))
 async def factory_stats(client, message: Message):
